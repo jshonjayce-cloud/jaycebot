@@ -338,7 +338,12 @@ function createPanelModal(action) {
 
 client.on("interactionCreate", async (interaction) => {
   const member = await getMemberRoles(interaction.user.id);
-  if (!hasAccess(member, [ADMIN_ROLE])) {
+
+  if (!interaction.isChatInputCommand() && !interaction.isButton() && !interaction.isModalSubmit()) {
+    return;
+  }
+
+  if (!interaction.isChatInputCommand() && !hasAccess(member, [ADMIN_ROLE])) {
     if (interaction.deferred || interaction.replied) {
       return interaction.followUp({
         content: "You need the admin role to use this bot.",
@@ -403,7 +408,7 @@ client.on("interactionCreate", async (interaction) => {
       };
       writeDB(db);
       return interaction.reply({
-        content: "**Account Created!**\n• **Username:** `" + username + "`\n• **Key:** `" + db[username].key + "`\n• **Expires On:** " + formatDate(createdAt + KEY_LIFETIME) + "\n• **Scripts:** `" + (db[username].allowedScripts || []).join(", ") + "`",
+        content: "**Account Created!**\n• **Username:** `" + username + "`\n• **Key:** `" + db[username].key + "`\n• **Expires On:** " + formatDate(createdAt + KEY_LIFETIME) + "\n• **Scripts:** " + (db[username].allowedScripts || []).join(", ") + "\n• **Device Lock:** Open",
         flags: MessageFlags.Ephemeral
       });
     }
@@ -448,11 +453,26 @@ client.on("interactionCreate", async (interaction) => {
     if (interaction.commandName !== "jayce") return;
 
     const subcommand = interaction.options.getSubcommand();
+
     if (subcommand === "panel") {
       if (!hasAccess(await getMemberRoles(interaction.user.id), USERINFO_ROLES)) {
         return interaction.reply({ content: "**No Access**", flags: MessageFlags.Ephemeral });
       }
       return interaction.reply(createPanel());
+    }
+
+    if (subcommand === "setpanel") {
+      if (!hasAccess(await getMemberRoles(interaction.user.id), USERINFO_ROLES)) {
+        return interaction.reply({ content: "**No Access**", flags: MessageFlags.Ephemeral });
+      }
+
+      const targetChannel = interaction.options.getChannel("channel");
+      if (!targetChannel || typeof targetChannel.send !== "function") {
+        return interaction.reply({ content: "Please select a valid text channel.", flags: MessageFlags.Ephemeral });
+      }
+
+      await targetChannel.send(createPanel());
+      return interaction.reply({ content: "Panel sent to " + targetChannel.toString() + ".", flags: MessageFlags.Ephemeral });
     }
 
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -482,7 +502,7 @@ client.on("interactionCreate", async (interaction) => {
       const keyCreatedAt = targetUser.keyCreatedAt || now();
       const left = Math.max(0, Math.ceil((KEY_LIFETIME - (now() - keyCreatedAt)) / (1000 * 60 * 60 * 24)));
       return interaction.editReply({
-        content: "### Account Check: [" + inputUser + "]\n• **Status:** `" + targetUser.status + "`\n• **Device Lock:** `" + (targetUser.hwid ? "Locked" : "Open") + "`\n• **Expires On:** " + formatDate(targetUser.keyCreatedAt + KEY_LIFETIME) + "\n• **Scripts:** `" + (targetUser.allowedScripts || []).join(", ") + "`\n• **Days Left:** " + left,
+        content: "### Account Check: [" + inputUser + "]\n• **Status:** `" + targetUser.status + "`\n• **Device Lock:** `" + (targetUser.hwid ? "Locked" : "Open") + "`\n• **Expires On:** " + formatDate(keyCreatedAt + KEY_LIFETIME) + "\n• **Days Left:** " + left + " day(s)",
         flags: MessageFlags.Ephemeral
       });
     }
@@ -501,7 +521,8 @@ client.on("interactionCreate", async (interaction) => {
       if (lookupUsername === "__meta" || !db[lookupUsername]) return interaction.editReply({ content: "Account not found." });
       const account = db[lookupUsername];
       return interaction.editReply({
-        content: "**User Info — `" + lookupUsername + "`**\n• **Username:** `" + lookupUsername + "`\n• **Password:** `" + account.password + "`\n• **Key:** `" + account.key + "`\n• **Scripts:** `" + (account.allowedScripts || []).join(", ") + "`"
+        content: "**User Info — `" + lookupUsername + "`**\n• **Username:** `" + lookupUsername + "`\n• **Password:** `" + account.password + "`\n• **Key:** `" + account.key + "`\n• **Scripts:** `" + (account.allowedScripts || []).join(", ") + "`\n• **Status:** `" + (account.status || "active") + "`",
+        flags: MessageFlags.Ephemeral
       });
     }
 
@@ -602,8 +623,9 @@ function buildCommands() {
 
   builder
     .addSubcommand((sub) => sub.setName("panel").setDescription("Open the Jayce scripts panel"))
+    .addSubcommand((sub) => sub.setName("setpanel").setDescription("Send the panel to a selected channel").addChannelOption((o) => o.setName("channel").setDescription("The channel to send the panel to").setRequired(true)))
     .addSubcommand((sub) => sub.setName("accountstatus").setDescription("Check your account status").addStringOption((o) => o.setName("username").setDescription("Your loader username").setRequired(true)).addStringOption((o) => o.setName("password").setDescription("Your loader password").setRequired(true)))
-    .addSubcommand((sub) => sub.setName("changepassword").setDescription("Change your password").addStringOption((o) => o.setName("username").setDescription("Your loader username").setRequired(true)).addStringOption((o) => o.setName("old_password").setDescription("Old password").setRequired(true)).addStringOption((o) => o.setName("new_password").setDescription("New password").setRequired(true)))
+    .addSubcommand((sub) => sub.setName("changepassword").setDescription("Change your password").addStringOption((o) => o.setName("username").setDescription("Your loader username").setRequired(true)).addStringOption((o) => o.setName("old_password").setDescription("Current password").setRequired(true)).addStringOption((o) => o.setName("new_password").setDescription("New password").setRequired(true)))
     .addSubcommand((sub) => sub.setName("showuserinfo").setDescription("View any account's username, password and key").addStringOption((o) => o.setName("lookup").setDescription("The username to inspect").setRequired(true)))
     .addSubcommand((sub) => sub.setName("accounts").setDescription("List all registered accounts"))
     .addSubcommand((sub) => sub.setName("revoke").setDescription("Revoke access").addUserOption((o) => o.setName("user").setDescription("Discord user to revoke").setRequired(true)));
@@ -664,7 +686,7 @@ client.on("messageCreate", async (message) => {
       if (account.status === "disabled") return message.reply("This account is banned");
       const keyCreatedAt = account.keyCreatedAt || now();
       const left = Math.max(0, Math.ceil((KEY_LIFETIME - (now() - keyCreatedAt)) / (1000 * 60 * 60 * 24)));
-      return message.reply("### Account Check: [" + username + "]\n• **Status:** `" + account.status + "`\n• **Device Lock:** `" + (account.hwid ? "Locked" : "Open") + "`\n• **Expires On:** " + formatDate(account.keyCreatedAt + KEY_LIFETIME) + "\n• **Scripts:** `" + (account.allowedScripts || []).join(", ") + "`\n• **Days Left:** " + left);
+      return message.reply("### Account Check: [" + username + "]\n• **Status:** `" + account.status + "`\n• **Device Lock:** `" + (account.hwid ? "Locked" : "Open") + "`\n• **Expires On:** " + formatDate(keyCreatedAt + KEY_LIFETIME) + "\n• **Days Left:** " + left + " day(s)");
     }
 
     if (sub === "changepassword") {
