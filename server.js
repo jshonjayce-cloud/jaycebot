@@ -296,21 +296,21 @@ function createLuaTemplate(u, k, endpoint, displayName) {
 function createPanel() {
   const embed = new EmbedBuilder()
     .setColor(0xEAF4FF)
-    .setTitle("☁️ ୨୧ Angel Script Panel ୨୧ ☁️")
+    .setTitle("☁️ ୨୧ jayce script panel୨୧ ☁️")
     .setDescription(
       "˚₊‧꒰ა Welcome to the heavenly control panel ໒꒱‧₊˚\n\n" +
-      "🪽 Register an account\n" +
-      "☁️ Get your key\n" +
-      "✨ Main loader\n" +
-      "📱 Mobile loader\n" +
-      "💫 Reset HWID\n\n" +
+      "Register an account\n" +
+      " Get your key\n" +
+      "Main loader\n" +
+      " Mobile loader\n" +
+      "Reset HWID\n\n" +
       "˚₊‧ May your day be full of sunshine and stardust ‧₊˚"
     )
     .addFields({
-      name: "🕊️ Available Actions",
+      name: " Available Actions",
       value: "Register  ·  Get Key  ·  Main  ·  Mobile  ·  Reset HWID"
     })
-    .setFooter({ text: "Made with love and a little stardust ✨" });
+    .setFooter({ text: "Made with love and a little stardust " });
 
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId("jc_register").setLabel(" Register").setStyle(ButtonStyle.Primary),
