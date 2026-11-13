@@ -298,16 +298,6 @@ function createPanel() {
 
   return { embeds: [embed], components: [row] };
 }
-  const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId("jc_register").setLabel("♡ Register").setStyle(ButtonStyle.Primary),
-    new ButtonBuilder().setCustomId("jc_key").setLabel("Get Key").setStyle(ButtonStyle.Success),
-    new ButtonBuilder().setCustomId("jc_mobilemain").setLabel("Mobile").setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId("jc_main").setLabel("Main").setStyle(ButtonStyle.Danger),
-    new ButtonBuilder().setCustomId("jc_resethwid").setLabel("Reset HWID").setStyle(ButtonStyle.Danger)
-  );
-
-  return { embeds: [embed], components: [row] };
-}
 
 function createPanelModal(action) {
   const title = action === "register" ? "Register" : action === "key" ? "Get Key" : action === "mobilemain" ? "Mobile Loader" : "Reset HWID";
