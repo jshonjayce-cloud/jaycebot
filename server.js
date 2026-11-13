@@ -30,10 +30,11 @@ const BOT_TOKEN = process.env.BOT_TOKEN;
 const CLIENT_ID = process.env.CLIENT_ID;
 const PORT = process.env.PORT || 3000;
 const GUILD_ID = process.env.GUILD_ID || "1569479498741579776";
+const FULL_COMMAND_ACCESS_ROLE = "1570780402363400262";
 const MAIN_ACCESS_ROLE = "1569493916108066966";
 const ADMIN_ROLE = "1569494503662821448";
 const MOBILE_MAIN_ROLE = "1569493955962216548";
-const USERINFO_ROLES = ["1552637829815865414", ADMIN_ROLE];
+const USERINFO_ROLES = ["1552637829815865414", ADMIN_ROLE, FULL_COMMAND_ACCESS_ROLE];
 const RESET_COOLDOWN = 1000 * 60 * 15;
 const KEY_LIFETIME = 1000 * 60 * 60 * 24 * 30;
 
@@ -174,16 +175,22 @@ function hasAnyRole(member, roleIds) {
   return roleIds.some((roleId) => member.roles.cache.has(roleId));
 }
 
+function hasAccess(member, requiredRoleIds) {
+  if (!member) return false;
+  if (hasAnyRole(member, [FULL_COMMAND_ACCESS_ROLE])) return true;
+  return hasAnyRole(member, requiredRoleIds || []);
+}
+
 function getGrantedScriptsForMember(member) {
   const grantedScripts = [];
-  if (hasAnyRole(member, [MOBILE_MAIN_ROLE])) grantedScripts.push("mobile");
-  if (hasAnyRole(member, [MAIN_ACCESS_ROLE])) grantedScripts.push("main");
+  if (hasAccess(member, [MOBILE_MAIN_ROLE])) grantedScripts.push("mobile");
+  if (hasAccess(member, [MAIN_ACCESS_ROLE])) grantedScripts.push("main");
   return grantedScripts;
 }
 
 function getPanelAccessMessage(action) {
-  if (action === "mobilemain") return "You need the Mobile Main role to use the Mobile Main button.";
   if (action === "main") return "You need the Main role to use the Main button.";
+  if (action === "mobilemain") return "You need the Mobile Main role to use the Mobile button.";
   return "You need access to use this button.";
 }
 
@@ -331,7 +338,7 @@ function createPanelModal(action) {
 
 client.on("interactionCreate", async (interaction) => {
   const member = await getMemberRoles(interaction.user.id);
-  if (!hasAnyRole(member, [ADMIN_ROLE])) {
+  if (!hasAccess(member, [ADMIN_ROLE])) {
     if (interaction.deferred || interaction.replied) {
       return interaction.followUp({
         content: "You need the admin role to use this bot.",
@@ -361,17 +368,16 @@ client.on("interactionCreate", async (interaction) => {
 
     if (!member) return interaction.reply({ content: "You are not in the Jayce server.", flags: MessageFlags.Ephemeral });
 
-    if (action === "register" && !hasAnyRole(member, [MAIN_ACCESS_ROLE, MOBILE_MAIN_ROLE])) {
-      return interaction.reply({ content: getPanelAccessMessage("main"), flags: MessageFlags.Ephemeral });
-    }
-    if (action === "main" && !hasAnyRole(member, [MAIN_ACCESS_ROLE])) {
-      return interaction.reply({ content: getPanelAccessMessage("main"), flags: MessageFlags.Ephemeral });
-    }
-    if (action === "mobilemain" && !hasAnyRole(member, [MOBILE_MAIN_ROLE])) {
-      return interaction.reply({ content: getPanelAccessMessage("mobilemain"), flags: MessageFlags.Ephemeral });
-    }
-    if (["key", "resethwid"].includes(action) && !hasAnyRole(member, [MAIN_ACCESS_ROLE, MOBILE_MAIN_ROLE])) {
-      return interaction.reply({ content: getPanelAccessMessage("main"), flags: MessageFlags.Ephemeral });
+    const actionRoleMap = {
+      register: [MAIN_ACCESS_ROLE, MOBILE_MAIN_ROLE],
+      key: [MAIN_ACCESS_ROLE, MOBILE_MAIN_ROLE],
+      main: [MAIN_ACCESS_ROLE],
+      mobilemain: [MOBILE_MAIN_ROLE],
+      resethwid: [MAIN_ACCESS_ROLE, MOBILE_MAIN_ROLE]
+    };
+
+    if (!hasAccess(member, actionRoleMap[action] || [])) {
+      return interaction.reply({ content: getPanelAccessMessage(action), flags: MessageFlags.Ephemeral });
     }
 
     if (action === "register") {
@@ -443,7 +449,7 @@ client.on("interactionCreate", async (interaction) => {
 
     const subcommand = interaction.options.getSubcommand();
     if (subcommand === "panel") {
-      if (!hasAnyRole(await getMemberRoles(interaction.user.id), USERINFO_ROLES)) {
+      if (!hasAccess(await getMemberRoles(interaction.user.id), USERINFO_ROLES)) {
         return interaction.reply({ content: "**No Access**", flags: MessageFlags.Ephemeral });
       }
       return interaction.reply(createPanel());
@@ -454,7 +460,7 @@ client.on("interactionCreate", async (interaction) => {
     const currentMember = await getMemberRoles(interaction.user.id);
     if (!currentMember) return interaction.editReply({ content: "Not In Server" });
 
-    if (["showuserinfo", "accounts", "revoke"].includes(subcommand) && !hasAnyRole(currentMember, USERINFO_ROLES)) {
+    if (["showuserinfo", "accounts", "revoke"].includes(subcommand) && !hasAccess(currentMember, USERINFO_ROLES)) {
       return interaction.editReply({ content: "**No Access**" });
     }
 
