@@ -203,7 +203,7 @@ function createLoadHandler(scriptName) {
       }
       const { username, key, hwid } = req.body;
       const cleanUser = safeString(username);
-      if (!cleanUser || typeof key !== "string" || !key.trim() || typeof hwid !== "string" || !hwid.trim()) {
+      if (!cleanUser || typeof key !== "string" || !key.trim() || typeof hwid !== "string' || !hwid.trim()) {
         return res.status(400).json({ success: false, reason: "Username, key, and HWID are required" });
       }
 
@@ -480,8 +480,47 @@ client.on("interactionCreate", async (interaction) => {
     const currentMember = await getMemberRoles(interaction.user.id);
     if (!currentMember) return interaction.editReply({ content: "Not In Server" });
 
-    if (["showuserinfo", "accounts", "revoke"].includes(subcommand) && !hasAccess(currentMember, USERINFO_ROLES)) {
+    if (["showuserinfo", "accounts", "revoke", "deleteaccount", "resetkey", "stats"].includes(subcommand) && !hasAccess(currentMember, USERINFO_ROLES)) {
       return interaction.editReply({ content: "**No Access**" });
+    }
+
+    if (["deleteaccount", "resetkey"].includes(subcommand) && !hasAccess(currentMember, [ADMIN_ROLE])) {
+      return interaction.editReply({ content: "You need the admin role to use this command." });
+    }
+
+    if (subcommand === "stats") {
+      const accountNames = getAccountKeys(db);
+      const accounts = accountNames.map((name) => db[name]).filter(Boolean);
+      const activeCount = accounts.filter((account) => account.status !== "disabled").length;
+      const disabledCount = accounts.length - activeCount;
+      const mainCount = accounts.filter((account) => (account.allowedScripts || []).includes("main")).length;
+      const mobileCount = accounts.filter((account) => (account.allowedScripts || []).includes("mobile")).length;
+      const lockedCount = accounts.filter((account) => Boolean(account.hwid)).length;
+      return interaction.editReply({
+        content: "**Jayce Account Stats**\n• Total accounts: **" + accounts.length + "**\n• Active: **" + activeCount + "**\n• Disabled: **" + disabledCount + "**\n• Main access: **" + mainCount + "**\n• Mobile access: **" + mobileCount + "**\n• HWID locked: **" + lockedCount + "**"
+      });
+    }
+
+    if (subcommand === "deleteaccount") {
+      const usernameToDelete = interaction.options.getString("username")?.trim().toLowerCase();
+      const confirmed = interaction.options.getBoolean("confirm");
+      if (!confirmed) return interaction.editReply({ content: "Account deletion cancelled. Set `confirm` to true to permanently delete the account." });
+      if (!usernameToDelete || usernameToDelete === "__meta" || !db[usernameToDelete]) {
+        return interaction.editReply({ content: "Account not found." });
+      }
+      delete db[usernameToDelete];
+      writeDB(db);
+      return interaction.editReply({ content: "Account `" + usernameToDelete + "` was permanently deleted." });
+    }
+
+    if (subcommand === "resetkey") {
+      const usernameToReset = interaction.options.getString("username")?.trim().toLowerCase();
+      if (!usernameToReset || usernameToReset === "__meta" || !db[usernameToReset]) {
+        return interaction.editReply({ content: "Account not found." });
+      }
+      db[usernameToReset].key = generateKey();
+      writeDB(db);
+      return interaction.editReply({ content: "Key reset for `" + usernameToReset + "`. The key's current expiration date is unchanged." });
     }
 
     const inputUser = interaction.options.getString("username")?.trim().toLowerCase();
@@ -628,7 +667,10 @@ function buildCommands() {
     .addSubcommand((sub) => sub.setName("changepassword").setDescription("Change your password").addStringOption((o) => o.setName("username").setDescription("Your loader username").setRequired(true)).addStringOption((o) => o.setName("old_password").setDescription("Current password").setRequired(true)).addStringOption((o) => o.setName("new_password").setDescription("New password").setRequired(true)))
     .addSubcommand((sub) => sub.setName("showuserinfo").setDescription("View any account's username, password and key").addStringOption((o) => o.setName("lookup").setDescription("The username to inspect").setRequired(true)))
     .addSubcommand((sub) => sub.setName("accounts").setDescription("List all registered accounts"))
-    .addSubcommand((sub) => sub.setName("revoke").setDescription("Revoke access").addUserOption((o) => o.setName("user").setDescription("Discord user to revoke").setRequired(true)));
+    .addSubcommand((sub) => sub.setName("revoke").setDescription("Revoke access").addUserOption((o) => o.setName("user").setDescription("Discord user to revoke").setRequired(true)))
+    .addSubcommand((sub) => sub.setName("deleteaccount").setDescription("Permanently delete a loader account").addStringOption((o) => o.setName("username").setDescription("Username to delete").setRequired(true)).addBooleanOption((o) => o.setName("confirm").setDescription("Confirm permanent deletion").setRequired(true)))
+    .addSubcommand((sub) => sub.setName("resetkey").setDescription("Generate a new key for an account").addStringOption((o) => o.setName("username").setDescription("Username whose key to reset").setRequired(true)))
+    .addSubcommand((sub) => sub.setName("stats").setDescription("Show loader account statistics"));
 
   const json = builder.toJSON();
   json.dm_permission = true;
