@@ -291,7 +291,7 @@ function createPanel() {
     new ButtonBuilder().setCustomId("jc_register").setLabel("♡ Register").setStyle(ButtonStyle.Primary),
     new ButtonBuilder().setCustomId("jc_key").setLabel("Get Key").setStyle(ButtonStyle.Success),
     new ButtonBuilder().setCustomId("jc_mobilemain").setLabel("Mobile").setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId("jc_main").setLabel("Main").setStyle(ButtonStyle.Danger)
+    new ButtonBuilder().setCustomId("jc_main").setLabel("Main").setStyle(ButtonStyle.Danger),
     new ButtonBuilder().setCustomId("jc_resethwid").setLabel("Reset HWID").setStyle(ButtonStyle.Danger)
   );
 
@@ -439,7 +439,8 @@ client.on("interactionCreate", async (interaction) => {
       const keyCreatedAt = targetUser.keyCreatedAt || now();
       const left = Math.max(0, Math.ceil((KEY_LIFETIME - (now() - keyCreatedAt)) / (1000 * 60 * 60 * 24)));
       return interaction.editReply({
-        content: "### Account Check: [" + inputUser + "]\n• **Status:** `" + targetUser.status + "`\n• **Device Lock:** `" + (targetUser.hwid ? "Locked" : "Open") + "`\n• **Expires On:** " + formatDate(keyCreatedAt + KEY_LIFETIME) + "\n• **Days Left:** `" + left + "`"
+        content: "### Account Check: [" + inputUser + "]\n• **Status:** `" + targetUser.status + "`\n• **Device Lock:** `" + (targetUser.hwid ? "Locked" : "Open") + "`\n• **Expires On:** " + formatDate(keyCreatedAt + KEY_LIFETIME) + "\n• **Days Left:** " + left + " days",
+        flags: MessageFlags.Ephemeral
       });
     }
 
@@ -505,7 +506,7 @@ client.on("interactionCreate", async (interaction) => {
         db[accountName].allowedScripts = [];
         writeDB(db);
       }
-      return interaction.editReply({ content: "**Access revoked**\n• **Discord:** " + discordUser.username + "\n• **Loader account:** " + (accountName ? "`" + accountName + "` (disabled)" : "No linked loader account") });
+      return interaction.editReply({ content: "**Access revoked**\n• **Discord:** " + discordUser.username + "\n• **Loader account:** " + (accountName ? "`" + accountName + "` (disabled)" : "[none]") });
     }
 
     return interaction.editReply({ content: "Unknown command." });
@@ -559,9 +560,9 @@ function buildCommands() {
 
   builder
     .addSubcommand((sub) => sub.setName("panel").setDescription("Open the Jayce scripts panel"))
-    .addSubcommand((sub) => sub.setName("accountstatus").setDescription("Check your account status").addStringOption((o) => o.setName("username").setDescription("Your loader username").setRequired(true)).addStringOption((o) => o.setName("password").setDescription("Your loader password").setRequired(true)))
-    .addSubcommand((sub) => sub.setName("changepassword").setDescription("Change your password").addStringOption((o) => o.setName("username").setDescription("Your loader username").setRequired(true)).addStringOption((o) => o.setName("old_password").setDescription("Current password").setRequired(true)).addStringOption((o) => o.setName("new_password").setDescription("New password").setRequired(true)))
-    .addSubcommand((sub) => sub.setName("showuserinfo").setDescription("View any account's username, password and key").addStringOption((o) => o.setName("lookup").setDescription("The username to look up").setRequired(true)))
+    .addSubcommand((sub) => sub.setName("accountstatus").setDescription("Check your account status").addStringOption((o) => o.setName("username").setDescription("Your loader username").setRequired(true)))
+    .addSubcommand((sub) => sub.setName("changepassword").setDescription("Change your password").addStringOption((o) => o.setName("username").setDescription("Your loader username").setRequired(true)).addStringOption((o) => o.setName("old_password").setDescription("Old password").setRequired(true)).addStringOption((o) => o.setName("new_password").setDescription("New password").setRequired(true)))
+    .addSubcommand((sub) => sub.setName("showuserinfo").setDescription("View any account's username, password and key").addStringOption((o) => o.setName("lookup").setDescription("The username to inspect").setRequired(true)))
     .addSubcommand((sub) => sub.setName("accounts").setDescription("List all registered accounts"))
     .addSubcommand((sub) => sub.setName("revoke").setDescription("Revoke access").addUserOption((o) => o.setName("user").setDescription("Discord user to revoke").setRequired(true)));
 
@@ -621,7 +622,7 @@ client.on("messageCreate", async (message) => {
       if (account.status === "disabled") return message.reply("This account is banned");
       const keyCreatedAt = account.keyCreatedAt || now();
       const left = Math.max(0, Math.ceil((KEY_LIFETIME - (now() - keyCreatedAt)) / (1000 * 60 * 60 * 24)));
-      return message.reply("### Account Check: [" + username + "]\n• **Status:** `" + account.status + "`\n• **Device Lock:** `" + (account.hwid ? "Locked" : "Open") + "`\n• **Expires On:** " + formatDate(keyCreatedAt + KEY_LIFETIME) + "\n• **Days Left:** `" + left + "`");
+      return message.reply("### Account Check: [" + username + "]\n• **Status:** `" + account.status + "`\n• **Device Lock:** `" + (account.hwid ? "Locked" : "Open") + "`\n• **Expires On:** " + formatDate(keyCreatedAt + KEY_LIFETIME) + "\n• **Days Left:** " + left + " days");
     }
 
     if (sub === "changepassword") {
