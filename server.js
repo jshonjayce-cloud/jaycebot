@@ -273,21 +273,31 @@ function createLuaTemplate(u, k, endpoint, displayName) {
 
 function createPanel() {
   const embed = new EmbedBuilder()
-    .setColor(0xFF9ED2)
-    .setTitle("˚₊· ͟͟͞͞➳❥ jayce script panel ˚ʚ♡ɞ˚")
+    .setColor(0xEAF4FF)
+    .setTitle("☁️ ୨୧ Angel Script Panel ୨୧ ☁️")
     .setDescription(
-      "꒰ა ˚₊ ⊹  evil control panel  ⊹₊˚ ໒꒱\n\n" +
-      "๑  Register an account  ๑\n" +
-      "๑  Get your key  ๑\n" +
-      "๑  Mobile loader  ๑\n\n" +
-      "₊˚⊹♡  have fun  ♡⊹˚₊"
+      "˚₊‧꒰ა Welcome to the heavenly control panel ໒꒱‧₊˚\n\n" +
+      "🪽 Register an account\n" +
+      "☁️ Get your key\n" +
+      "✨ Mobile loader\n" +
+      "💫 Reset HWID\n\n" +
+      "˚₊‧ May your day be full of sunshine and stardust ‧₊˚"
     )
     .addFields({
-      name: "₊˚⊹ Available Actions ⊹˚₊",
-      value: "‧₊˚ Register  ·  Get Key  ·  Mobile  ·  Reset HWID ‧₊˚"
+      name: "🕊️ Available Actions",
+      value: "Register  ·  Get Key  ·  Mobile  ·  Reset HWID"
     })
-    .setFooter({ text: "jayce  ♡  evil & secure" });
+    .setFooter({ text: "Made with love and a little stardust ✨" });
 
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId("jc_register").setLabel(" Register").setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId("jc_key").setLabel(" Get Key").setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId("jc_mobilemain").setLabel(" Mobile").setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId("jc_resethwid").setLabel(" Reset HWID").setStyle(ButtonStyle.Danger)
+  );
+
+  return { embeds: [embed], components: [row] };
+}
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId("jc_register").setLabel("♡ Register").setStyle(ButtonStyle.Primary),
     new ButtonBuilder().setCustomId("jc_key").setLabel("Get Key").setStyle(ButtonStyle.Success),
