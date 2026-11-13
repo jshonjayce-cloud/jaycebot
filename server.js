@@ -203,7 +203,7 @@ function createLoadHandler(scriptName) {
       }
       const { username, key, hwid } = req.body;
       const cleanUser = safeString(username);
-      if (!cleanUser || typeof key !== "string" || !key.trim() || typeof hwid !== "string' || !hwid.trim()) {
+      if (!cleanUser || typeof key !== "string" || !key.trim() || typeof hwid !== "string" || !hwid.trim()) {
         return res.status(400).json({ success: false, reason: "Username, key, and HWID are required" });
       }
 
