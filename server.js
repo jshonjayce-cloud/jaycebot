@@ -240,7 +240,7 @@ function createLuaTemplate(u, k, endpoint, displayName) {
     : (process.env.DOMAIN || "localhost:3000");
 
   return [
-    `-- ${displayName} : -- /jamari Loader`,
+    `-- ${displayName} : -- /jayce Loader`,
     `local USERNAME = "${u}"`,
     `local KEY = "${k}"`,
     `local HWID = game:GetService("RbxAnalyticsService"):GetClientId()`,
@@ -257,14 +257,14 @@ function createLuaTemplate(u, k, endpoint, displayName) {
     "  })",
     "end)",
     "",
-    "if not ok then error('[ /jamari ] Could not reach server: ' .. tostring(response)) end",
+    "if not ok then error('[ /f2K8KAdBY5 ] Could not reach server: ' .. tostring(response)) end",
     "",
     "local data = HttpService:JSONDecode(response.Body)",
     "if not data.success then",
     "  if data.reason == 'HWID mismatch' then",
     "    game:GetService('Players').LocalPlayer:Kick('Wrong device detected. Visit discord.gg/jayce to reset your HWID.')",
     "  end",
-    "  error('[ /jamari ] ' .. (data.reason or 'Unknown error'))",
+    "  error('[ /f2K8KAdBY5 ] ' .. (data.reason or 'Unknown error'))",
     "end",
     "",
     "loadstring(data.chunk)()"
