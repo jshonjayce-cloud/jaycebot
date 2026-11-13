@@ -262,7 +262,7 @@ function createLuaTemplate(u, k, endpoint, displayName) {
     "local data = HttpService:JSONDecode(response.Body)",
     "if not data.success then",
     "  if data.reason == 'HWID mismatch' then",
-    "    game:GetService('Players').LocalPlayer:Kick('Wrong device detected. Visit discord.gg/jayce to reset your HWID.')",
+    "    game:GetService('Players').LocalPlayer:Kick('Wrong device detected. Visit discord.gg/f2K8KAdBY5 to reset your HWID.')",
     "  end",
     "  error('[ /f2K8KAdBY5 ] ' .. (data.reason or 'Unknown error'))",
     "end",
