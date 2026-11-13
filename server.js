@@ -311,6 +311,7 @@ function createPanelModal(action) {
   }
   return modal;
 }
+ client.on("interactionCreate", async (interaction) => {
   const member = await getMemberRoles(interaction.user.id);
   if (!hasAnyRole(member, [ADMIN_ROLE])) {
     const reply = {
@@ -322,6 +323,9 @@ function createPanelModal(action) {
     }
     return interaction.reply(reply);
   }
+
+  if (interaction.isButton()) {
+    // Existing button handling continues here
 
 client.on("interactionCreate", async (interaction) => {
   if (interaction.isButton()) {
