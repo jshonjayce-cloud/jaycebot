@@ -311,23 +311,22 @@ function createPanelModal(action) {
   }
   return modal;
 }
- client.on("interactionCreate", async (interaction) => {
-  const member = await getMemberRoles(interaction.user.id);
-  if (!hasAnyRole(member, [ADMIN_ROLE])) {
-    const reply = {
-      content: "You need the admin role to use this bot.",
-      flags: MessageFlags.Ephemeral
-    };
-    if (interaction.deferred || interaction.replied) {
-      return interaction.followUp(reply);
-    }
-    return interaction.reply(reply);
-  }
-
-  if (interaction.isButton()) {
-    // Existing button handling continues here
 
 client.on("interactionCreate", async (interaction) => {
+  const member = await getMemberRoles(interaction.user.id);
+  if (!hasAnyRole(member, [ADMIN_ROLE])) {
+    if (interaction.deferred || interaction.replied) {
+      return interaction.followUp({
+        content: "You need the admin role to use this bot.",
+        flags: MessageFlags.Ephemeral
+      });
+    }
+    return interaction.reply({
+      content: "You need the admin role to use this bot.",
+      flags: MessageFlags.Ephemeral
+    });
+  }
+
   if (interaction.isButton()) {
     const action = interaction.customId.slice(3);
     if (interaction.customId.startsWith("jc_") && ["register", "key", "mobilemain", "resethwid"].includes(action)) {
@@ -342,7 +341,6 @@ client.on("interactionCreate", async (interaction) => {
     const username = interaction.fields.getTextInputValue("username").trim().toLowerCase();
     const password = interaction.fields.getTextInputValue("password");
     const db = readDB();
-    const member = await getMemberRoles(interaction.user.id);
 
     if (!member) return interaction.reply({ content: "You are not in the Jayce server.", flags: MessageFlags.Ephemeral });
     if (action === "register" && !hasAnyRole(member, [MOBILE_MAIN_ROLE])) {
@@ -430,10 +428,10 @@ client.on("interactionCreate", async (interaction) => {
 
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-    const member = await getMemberRoles(interaction.user.id);
-    if (!member) return interaction.editReply({ content: "Not In Server" });
+    const currentMember = await getMemberRoles(interaction.user.id);
+    if (!currentMember) return interaction.editReply({ content: "Not In Server" });
 
-    if (["showuserinfo", "accounts", "revoke"].includes(subcommand) && !hasAnyRole(member, USERINFO_ROLES)) {
+    if (["showuserinfo", "accounts", "revoke"].includes(subcommand) && !hasAnyRole(currentMember, USERINFO_ROLES)) {
       return interaction.editReply({ content: "**No Access**" });
     }
 
