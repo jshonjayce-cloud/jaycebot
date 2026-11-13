@@ -31,6 +31,7 @@ const CLIENT_ID = process.env.CLIENT_ID;
 const PORT = process.env.PORT || 3000;
 const GUILD_ID = process.env.GUILD_ID || "1569479498741579776";
 const MAIN_ACCESS_ROLE = "1569493916108066966";
+const ADMIN_ROLE = "1569494503662821448";
 const MOBILE_MAIN_ROLE = "1569493955962216548";
 const USERINFO_ROLES = ["1552637829815865414"];
 const RESET_COOLDOWN = 1000 * 60 * 15;
@@ -310,6 +311,17 @@ function createPanelModal(action) {
   }
   return modal;
 }
+  const member = await getMemberRoles(interaction.user.id);
+  if (!hasAnyRole(member, [ADMIN_ROLE])) {
+    const reply = {
+      content: "You need the admin role to use this bot.",
+      flags: MessageFlags.Ephemeral
+    };
+    if (interaction.deferred || interaction.replied) {
+      return interaction.followUp(reply);
+    }
+    return interaction.reply(reply);
+  }
 
 client.on("interactionCreate", async (interaction) => {
   if (interaction.isButton()) {
