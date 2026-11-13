@@ -49,19 +49,26 @@ const DB_BASE = (() => {
 const DB_PATH = path.join(DB_BASE, "database.json");
 
 const SCRIPTS = {};
-const mobileScriptPath = path.join(__dirname, "scripts", "mobile.lua");
-try {
-  if (fs.existsSync(mobileScriptPath)) {
-    const script = fs.readFileSync(mobileScriptPath, "utf8");
-    SCRIPTS.mobile = script;
-    console.log("[SCRIPTS] Loaded scripts/mobile.lua (" + script.length + " bytes)");
-  } else {
-    SCRIPTS.mobile = "print('mobile script missing')";
-    console.error("[SCRIPTS] mobile.lua not found at: " + mobileScriptPath);
+const scriptFiles = [
+  ["mobile.lua", "mobile"],
+  ["main.lua", "main"]
+];
+
+for (const [fileName, scriptKey] of scriptFiles) {
+  const scriptPath = path.join(__dirname, "scripts", fileName);
+  try {
+    if (fs.existsSync(scriptPath)) {
+      const script = fs.readFileSync(scriptPath, "utf8");
+      SCRIPTS[scriptKey] = script;
+      console.log("[SCRIPTS] Loaded scripts/" + fileName + " (" + script.length + " bytes)");
+    } else {
+      SCRIPTS[scriptKey] = "print('" + scriptKey + " script missing')";
+      console.error("[SCRIPTS] " + fileName + " not found at: " + scriptPath);
+    }
+  } catch (e) {
+    SCRIPTS[scriptKey] = "print('" + scriptKey + " script failed to load')";
+    console.error("[SCRIPTS] Error loading " + fileName + ":", e.message);
   }
-} catch (e) {
-  SCRIPTS.mobile = "print('mobile script failed to load')";
-  console.error("[SCRIPTS] Error loading mobile.lua:", e.message);
 }
 
 process.on("unhandledRejection", (reason) => {
@@ -167,8 +174,16 @@ function hasAnyRole(member, roleIds) {
   return roleIds.some((roleId) => member.roles.cache.has(roleId));
 }
 
+function getGrantedScriptsForMember(member) {
+  const grantedScripts = [];
+  if (hasAnyRole(member, [MOBILE_MAIN_ROLE])) grantedScripts.push("mobile");
+  if (hasAnyRole(member, [MAIN_ACCESS_ROLE])) grantedScripts.push("main");
+  return grantedScripts;
+}
+
 function getPanelAccessMessage(action) {
   if (action === "mobilemain") return "You need the Mobile Main role to use the Mobile Main button.";
+  if (action === "main") return "You need the Main role to use the Main button.";
   return "You need access to use this button.";
 }
 
@@ -230,7 +245,7 @@ function createLoadHandler(scriptName) {
   };
 }
 
-app.post("/load/main", (req, res) => res.json({ success: false, reason: "Main loader disabled" }));
+app.post("/load/main", createLoadHandler("main"));
 app.post("/load/mobile", createLoadHandler("mobile"));
 app.get("/health", (req, res) => res.status(200).json({ status: "ok", scriptsLoaded: Object.keys(SCRIPTS).length }));
 
@@ -279,19 +294,21 @@ function createPanel() {
       "˚₊‧꒰ა Welcome to the heavenly control panel ໒꒱‧₊˚\n\n" +
       "🪽 Register an account\n" +
       "☁️ Get your key\n" +
-      "✨ Mobile loader\n" +
+      "✨ Main loader\n" +
+      "📱 Mobile loader\n" +
       "💫 Reset HWID\n\n" +
       "˚₊‧ May your day be full of sunshine and stardust ‧₊˚"
     )
     .addFields({
       name: "🕊️ Available Actions",
-      value: "Register  ·  Get Key  ·  Mobile  ·  Reset HWID"
+      value: "Register  ·  Get Key  ·  Main  ·  Mobile  ·  Reset HWID"
     })
     .setFooter({ text: "Made with love and a little stardust ✨" });
 
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId("jc_register").setLabel(" Register").setStyle(ButtonStyle.Primary),
     new ButtonBuilder().setCustomId("jc_key").setLabel(" Get Key").setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId("jc_main").setLabel(" Main").setStyle(ButtonStyle.Primary),
     new ButtonBuilder().setCustomId("jc_mobilemain").setLabel(" Mobile").setStyle(ButtonStyle.Secondary),
     new ButtonBuilder().setCustomId("jc_resethwid").setLabel(" Reset HWID").setStyle(ButtonStyle.Danger)
   );
@@ -300,13 +317,13 @@ function createPanel() {
 }
 
 function createPanelModal(action) {
-  const title = action === "register" ? "Register" : action === "key" ? "Get Key" : action === "mobilemain" ? "Mobile Loader" : "Reset HWID";
+  const title = action === "register" ? "Register" : action === "key" ? "Get Key" : action === "main" ? "Main Loader" : action === "mobilemain" ? "Mobile Loader" : "Reset HWID";
   const modal = new ModalBuilder().setCustomId("jc_modal_" + action).setTitle(title);
   modal.addComponents(
     new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("username").setLabel("Username").setStyle(TextInputStyle.Short).setRequired(true)),
     new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("password").setLabel("Password").setStyle(TextInputStyle.Short).setRequired(true))
   );
-  if (action === "mobilemain") {
+  if (action === "main" || action === "mobilemain") {
     modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("key").setLabel("Key").setStyle(TextInputStyle.Short).setRequired(true)));
   }
   return modal;
@@ -329,7 +346,7 @@ client.on("interactionCreate", async (interaction) => {
 
   if (interaction.isButton()) {
     const action = interaction.customId.slice(3);
-    if (interaction.customId.startsWith("jc_") && ["register", "key", "mobilemain", "resethwid"].includes(action)) {
+    if (interaction.customId.startsWith("jc_") && ["register", "key", "main", "mobilemain", "resethwid"].includes(action)) {
       return interaction.showModal(createPanelModal(action));
     }
     return;
@@ -343,14 +360,18 @@ client.on("interactionCreate", async (interaction) => {
     const db = readDB();
 
     if (!member) return interaction.reply({ content: "You are not in the Jayce server.", flags: MessageFlags.Ephemeral });
-    if (action === "register" && !hasAnyRole(member, [MOBILE_MAIN_ROLE])) {
-      return interaction.reply({ content: getPanelAccessMessage("mobilemain"), flags: MessageFlags.Ephemeral });
+
+    if (action === "register" && !hasAnyRole(member, [MAIN_ACCESS_ROLE, MOBILE_MAIN_ROLE])) {
+      return interaction.reply({ content: getPanelAccessMessage("main"), flags: MessageFlags.Ephemeral });
+    }
+    if (action === "main" && !hasAnyRole(member, [MAIN_ACCESS_ROLE])) {
+      return interaction.reply({ content: getPanelAccessMessage("main"), flags: MessageFlags.Ephemeral });
     }
     if (action === "mobilemain" && !hasAnyRole(member, [MOBILE_MAIN_ROLE])) {
       return interaction.reply({ content: getPanelAccessMessage("mobilemain"), flags: MessageFlags.Ephemeral });
     }
-    if (["key", "resethwid"].includes(action) && !hasAnyRole(member, [MOBILE_MAIN_ROLE])) {
-      return interaction.reply({ content: getPanelAccessMessage("mobilemain"), flags: MessageFlags.Ephemeral });
+    if (["key", "resethwid"].includes(action) && !hasAnyRole(member, [MAIN_ACCESS_ROLE, MOBILE_MAIN_ROLE])) {
+      return interaction.reply({ content: getPanelAccessMessage("main"), flags: MessageFlags.Ephemeral });
     }
 
     if (action === "register") {
@@ -361,6 +382,7 @@ client.on("interactionCreate", async (interaction) => {
         return interaction.reply({ content: "You already have an account.", flags: MessageFlags.Ephemeral });
       }
 
+      const grantedScripts = getGrantedScriptsForMember(member);
       const createdAt = now();
       db[username] = {
         password,
@@ -369,13 +391,13 @@ client.on("interactionCreate", async (interaction) => {
         hwidLockedAt: null,
         lastHwidReset: 0,
         status: "active",
-        allowedScripts: ["mobile"],
+        allowedScripts: grantedScripts.length ? grantedScripts : ["mobile"],
         discordId: interaction.user.id,
         keyCreatedAt: createdAt
       };
       writeDB(db);
       return interaction.reply({
-        content: "**Account Created!**\n• **Username:** `" + username + "`\n• **Key:** `" + db[username].key + "`\n• **Expires On:** " + formatDate(createdAt + KEY_LIFETIME),
+        content: "**Account Created!**\n• **Username:** `" + username + "`\n• **Key:** `" + db[username].key + "`\n• **Expires On:** " + formatDate(createdAt + KEY_LIFETIME) + "\n• **Scripts:** `" + (db[username].allowedScripts || []).join(", ") + "`",
         flags: MessageFlags.Ephemeral
       });
     }
@@ -404,11 +426,12 @@ client.on("interactionCreate", async (interaction) => {
     if (account.key !== inputKey) {
       return interaction.reply({ content: "Invalid key.", flags: MessageFlags.Ephemeral });
     }
-    if (!account.allowedScripts.includes("mobile")) {
+    const requestedScript = action === "main" ? "main" : "mobile";
+    if (!account.allowedScripts.includes(requestedScript)) {
       return interaction.reply({ content: "No access.", flags: MessageFlags.Ephemeral });
     }
 
-    const loader = createLuaTemplate(username, inputKey, "mobile", "Jayce Mobile");
+    const loader = createLuaTemplate(username, inputKey, requestedScript, requestedScript === "main" ? "Jayce Main" : "Jayce Mobile");
     return interaction.reply({ content: "```lua\n" + loader + "```", flags: MessageFlags.Ephemeral });
   }
 
@@ -453,7 +476,7 @@ client.on("interactionCreate", async (interaction) => {
       const keyCreatedAt = targetUser.keyCreatedAt || now();
       const left = Math.max(0, Math.ceil((KEY_LIFETIME - (now() - keyCreatedAt)) / (1000 * 60 * 60 * 24)));
       return interaction.editReply({
-        content: "### Account Check: [" + inputUser + "]\n• **Status:** `" + targetUser.status + "`\n• **Device Lock:** `" + (targetUser.hwid ? "Locked" : "Open") + "`\n• **Expires On:** " + formatDate(keyCreatedAt + KEY_LIFETIME) + "\n• **Days Left:** " + left + " days",
+        content: "### Account Check: [" + inputUser + "]\n• **Status:** `" + targetUser.status + "`\n• **Device Lock:** `" + (targetUser.hwid ? "Locked" : "Open") + "`\n• **Expires On:** " + formatDate(targetUser.keyCreatedAt + KEY_LIFETIME) + "\n• **Scripts:** `" + (targetUser.allowedScripts || []).join(", ") + "`\n• **Days Left:** " + left,
         flags: MessageFlags.Ephemeral
       });
     }
@@ -472,7 +495,7 @@ client.on("interactionCreate", async (interaction) => {
       if (lookupUsername === "__meta" || !db[lookupUsername]) return interaction.editReply({ content: "Account not found." });
       const account = db[lookupUsername];
       return interaction.editReply({
-        content: "**User Info — `" + lookupUsername + "`**\n• **Username:** `" + lookupUsername + "`\n• **Password:** `" + account.password + "`\n• **Key:** `" + account.key + "`"
+        content: "**User Info — `" + lookupUsername + "`**\n• **Username:** `" + lookupUsername + "`\n• **Password:** `" + account.password + "`\n• **Key:** `" + account.key + "`\n• **Scripts:** `" + (account.allowedScripts || []).join(", ") + "`"
       });
     }
 
@@ -545,8 +568,7 @@ client.on("guildMemberUpdate", async (oldMember, newMember) => {
     const newRoles = newMember.roles.cache;
     if (oldRoles.size === newRoles.size && [...oldRoles.keys()].every((key) => newRoles.has(key))) return;
 
-    const allowedScripts = [];
-    if (hasAnyRole(newMember, [MOBILE_MAIN_ROLE])) allowedScripts.push("mobile");
+    const allowedScripts = getGrantedScriptsForMember(newMember);
     db[linkedAccountName].allowedScripts = allowedScripts;
     writeDB(db);
   } catch (err) {
@@ -574,7 +596,7 @@ function buildCommands() {
 
   builder
     .addSubcommand((sub) => sub.setName("panel").setDescription("Open the Jayce scripts panel"))
-    .addSubcommand((sub) => sub.setName("accountstatus").setDescription("Check your account status").addStringOption((o) => o.setName("username").setDescription("Your loader username").setRequired(true)))
+    .addSubcommand((sub) => sub.setName("accountstatus").setDescription("Check your account status").addStringOption((o) => o.setName("username").setDescription("Your loader username").setRequired(true)).addStringOption((o) => o.setName("password").setDescription("Your loader password").setRequired(true)))
     .addSubcommand((sub) => sub.setName("changepassword").setDescription("Change your password").addStringOption((o) => o.setName("username").setDescription("Your loader username").setRequired(true)).addStringOption((o) => o.setName("old_password").setDescription("Old password").setRequired(true)).addStringOption((o) => o.setName("new_password").setDescription("New password").setRequired(true)))
     .addSubcommand((sub) => sub.setName("showuserinfo").setDescription("View any account's username, password and key").addStringOption((o) => o.setName("lookup").setDescription("The username to inspect").setRequired(true)))
     .addSubcommand((sub) => sub.setName("accounts").setDescription("List all registered accounts"))
@@ -636,7 +658,7 @@ client.on("messageCreate", async (message) => {
       if (account.status === "disabled") return message.reply("This account is banned");
       const keyCreatedAt = account.keyCreatedAt || now();
       const left = Math.max(0, Math.ceil((KEY_LIFETIME - (now() - keyCreatedAt)) / (1000 * 60 * 60 * 24)));
-      return message.reply("### Account Check: [" + username + "]\n• **Status:** `" + account.status + "`\n• **Device Lock:** `" + (account.hwid ? "Locked" : "Open") + "`\n• **Expires On:** " + formatDate(keyCreatedAt + KEY_LIFETIME) + "\n• **Days Left:** " + left + " days");
+      return message.reply("### Account Check: [" + username + "]\n• **Status:** `" + account.status + "`\n• **Device Lock:** `" + (account.hwid ? "Locked" : "Open") + "`\n• **Expires On:** " + formatDate(account.keyCreatedAt + KEY_LIFETIME) + "\n• **Scripts:** `" + (account.allowedScripts || []).join(", ") + "`\n• **Days Left:** " + left);
     }
 
     if (sub === "changepassword") {
