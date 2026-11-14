@@ -37,6 +37,7 @@ const MOBILE_MAIN_ROLE = "1569493955962216548";
 const USERINFO_ROLES = ["1552637829815865414", ADMIN_ROLE, FULL_COMMAND_ACCESS_ROLE];
 const RESET_COOLDOWN = 1000 * 60 * 15;
 const KEY_LIFETIME = 1000 * 60 * 60 * 24 * 30;
+const VALID_SCRIPTS = ["main", "mobile"];
 
 const DB_BASE = (() => {
   if (process.env.RENDER_DISK_PATH) return process.env.RENDER_DISK_PATH;
@@ -150,6 +151,17 @@ function getAccountKeys(db) {
   return Object.keys(db).filter((k) => k !== "__meta");
 }
 
+function normalizeScriptName(value) {
+  const s = (value || "").toString().trim().toLowerCase();
+  return VALID_SCRIPTS.includes(s) ? s : null;
+}
+
+function getAccountScripts(account) {
+  if (!account || !account.allowedScripts) return [];
+  if (!Array.isArray(account.allowedScripts)) return [];
+  return account.allowedScripts.filter((script) => VALID_SCRIPTS.includes(script));
+}
+
 function findAccountByDiscordId(db, discordId) {
   const id = String(discordId);
   for (const name of getAccountKeys(db)) {
@@ -192,6 +204,21 @@ function getPanelAccessMessage(action) {
   if (action === "main") return "You need the Main role to use the Main button.";
   if (action === "mobilemain") return "You need the Mobile Main role to use the Mobile button.";
   return "You need access to use this button.";
+}
+
+function getScriptAccessText(account) {
+  const scripts = getAccountScripts(account);
+  return scripts.length ? scripts.join(", ") : "none";
+}
+
+async function refreshLinkedAccountAccess(db, discordUserId) {
+  const accountName = findAccountByDiscordId(db, discordUserId);
+  if (!accountName || !db[accountName]) return null;
+  const member = await getMemberRoles(discordUserId);
+  const granted = getGrantedScriptsForMember(member);
+  db[accountName].allowedScripts = granted.length ? granted : ["mobile"];
+  writeDB(db);
+  return db[accountName];
 }
 
 function createLoadHandler(scriptName) {
@@ -408,7 +435,7 @@ client.on("interactionCreate", async (interaction) => {
       };
       writeDB(db);
       return interaction.reply({
-        content: "**Account Created!**\n• **Username:** `" + username + "`\n• **Key:** `" + db[username].key + "`\n• **Expires On:** " + formatDate(createdAt + KEY_LIFETIME) + "\n• **Scripts:** " + (db[username].allowedScripts || []).join(", ") + "\n• **Device Lock:** Open",
+        content: "**Account Created!**\n• **Username:** `" + username + "`\n• **Key:** `" + db[username].key + "`\n• **Expires On:** " + formatDate(createdAt + KEY_LIFETIME) + "\n• **Scripts:** `" + getScriptAccessText(db[username]) + "`",
         flags: MessageFlags.Ephemeral
       });
     }
@@ -475,16 +502,38 @@ client.on("interactionCreate", async (interaction) => {
       return interaction.reply({ content: "Panel sent to " + targetChannel.toString() + ".", flags: MessageFlags.Ephemeral });
     }
 
+    if (subcommand === "help") {
+      return interaction.reply({
+        content: "**Jayce Command List**\n" +
+          "• `/jayce panel` - open the script panel\n" +
+          "• `/jayce accountstatus <username> <password>` - check account status\n" +
+          "• `/jayce accountinfo <lookup>` - view another account\n" +
+          "• `/jayce changepassword <username> <old_password> <new_password>` - change password\n" +
+          "• `/jayce accounts` - list all accounts\n" +
+          "• `/jayce stats` - account stats\n" +
+          "• `/jayce whois <user>` - locate linked account\n" +
+          "• `/jayce grant <username> <main|mobile>` - grant script access\n" +
+          "• `/jayce removeaccess <username> <main|mobile>` - revoke script access\n" +
+          "• `/jayce revoke <user>` - disable linked account\n" +
+          "• `/jayce unsuspend <user>` - re-enable an account\n" +
+          "• `/jayce refreshaccess <user>` - refresh access based on Discord roles\n" +
+          "• `/jayce togglemaintenance <true|false>` - stop/start bot\n" +
+          "• `/jayce resetkey <username>` - rotate key\n" +
+          "• `/jayce deleteaccount <username> --confirm` - remove account",
+        flags: MessageFlags.Ephemeral
+      });
+    }
+
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     const currentMember = await getMemberRoles(interaction.user.id);
     if (!currentMember) return interaction.editReply({ content: "Not In Server" });
 
-    if (["showuserinfo", "accounts", "revoke", "deleteaccount", "resetkey", "stats"].includes(subcommand) && !hasAccess(currentMember, USERINFO_ROLES)) {
+    if (["showuserinfo", "accountinfo", "accounts", "revoke", "deleteaccount", "resetkey", "stats", "grant", "removeaccess", "suspend", "unsuspend", "whois", "lookupdiscord", "refreshaccess", "togglemaintenance", "setpassword", "lockaccount", "unlockaccount", "maintenance", "help"].includes(subcommand) && !hasAccess(currentMember, USERINFO_ROLES)) {
       return interaction.editReply({ content: "**No Access**" });
     }
 
-    if (["deleteaccount", "resetkey"].includes(subcommand) && !hasAccess(currentMember, [ADMIN_ROLE])) {
+    if (["deleteaccount", "resetkey", "grant", "removeaccess", "suspend", "unsuspend", "togglemaintenance", "lookupdiscord", "setpassword"].includes(subcommand) && !hasAccess(currentMember, [ADMIN_ROLE])) {
       return interaction.editReply({ content: "You need the admin role to use this command." });
     }
 
@@ -497,8 +546,18 @@ client.on("interactionCreate", async (interaction) => {
       const mobileCount = accounts.filter((account) => (account.allowedScripts || []).includes("mobile")).length;
       const lockedCount = accounts.filter((account) => Boolean(account.hwid)).length;
       return interaction.editReply({
-        content: "**Jayce Account Stats**\n• Total accounts: **" + accounts.length + "**\n• Active: **" + activeCount + "**\n• Disabled: **" + disabledCount + "**\n• Main access: **" + mainCount + "**\n• Mobile access: **" + mobileCount + "**\n• HWID locked: **" + lockedCount + "**"
+        content: "**Jayce Account Stats**\n• Total accounts: **" + accounts.length + "**\n• Active: **" + activeCount + "**\n• Disabled: **" + disabledCount + "**\n• Main access: **" + mainCount + "**\n• Mobile access: **" + mobileCount + "**\n• Device locked: **" + lockedCount + "**",
+        flags: MessageFlags.Ephemeral
       });
+    }
+
+    if (subcommand === "togglemaintenance") {
+      const enabled = interaction.options.getBoolean("enabled");
+      if (!db.__meta) db.__meta = {};
+      const targetState = enabled !== null && enabled !== undefined ? Boolean(enabled) : !Boolean(db.__meta.maintenanceMode);
+      db.__meta.maintenanceMode = targetState;
+      writeDB(db);
+      return interaction.editReply({ content: targetState ? "**Maintenance mode enabled**" : "**Maintenance mode disabled**" });
     }
 
     if (subcommand === "deleteaccount") {
@@ -523,44 +582,77 @@ client.on("interactionCreate", async (interaction) => {
       return interaction.editReply({ content: "Key reset for `" + usernameToReset + "`. The key's current expiration date is unchanged." });
     }
 
-    const inputUser = interaction.options.getString("username")?.trim().toLowerCase();
-    const inputPass = interaction.options.getString("password");
-    const targetUser = inputUser ? db[inputUser] : null;
-
-    function checkCredentials(customUser, customPass) {
-      if (customUser === undefined) customUser = targetUser;
-      if (customPass === undefined) customPass = inputPass;
-      if (!customUser) { interaction.editReply({ content: "Account not found." }).catch(() => {}); return false; }
-      if (customUser.password !== customPass) { interaction.editReply({ content: "Incorrect password" }).catch(() => {}); return false; }
-      if (customUser.status === "disabled") { interaction.editReply({ content: "This account is banned" }).catch(() => {}); return false; }
-      return true;
-    }
-
-    if (subcommand === "accountstatus") {
-      if (!checkCredentials()) return;
-      const keyCreatedAt = targetUser.keyCreatedAt || now();
-      const left = Math.max(0, Math.ceil((KEY_LIFETIME - (now() - keyCreatedAt)) / (1000 * 60 * 60 * 24)));
-      return interaction.editReply({
-        content: "### Account Check: [" + inputUser + "]\n• **Status:** `" + targetUser.status + "`\n• **Device Lock:** `" + (targetUser.hwid ? "Locked" : "Open") + "`\n• **Expires On:** " + formatDate(keyCreatedAt + KEY_LIFETIME) + "\n• **Days Left:** " + left + " day(s)",
-        flags: MessageFlags.Ephemeral
-      });
-    }
-
-    if (subcommand === "changepassword") {
-      const oldPass = interaction.options.getString("old_password");
-      if (!checkCredentials(targetUser, oldPass)) return;
-      db[inputUser].password = interaction.options.getString("new_password");
+    if (subcommand === "grant") {
+      const username = interaction.options.getString("username")?.trim().toLowerCase();
+      const script = normalizeScriptName(interaction.options.getString("script"));
+      if (!username || username === "__meta" || !db[username]) return interaction.editReply({ content: "Account not found." });
+      if (!script) return interaction.editReply({ content: "Use a valid script: `main` or `mobile`." });
+      if (!db[username].allowedScripts) db[username].allowedScripts = [];
+      if (!db[username].allowedScripts.includes(script)) db[username].allowedScripts.push(script);
       writeDB(db);
-      return interaction.editReply({ content: "Password changed" });
+      return interaction.editReply({ content: "Granted `" + script + "` access to `" + username + "`." });
     }
 
-    if (subcommand === "showuserinfo") {
+    if (subcommand === "removeaccess") {
+      const username = interaction.options.getString("username")?.trim().toLowerCase();
+      const script = normalizeScriptName(interaction.options.getString("script"));
+      if (!username || username === "__meta" || !db[username]) return interaction.editReply({ content: "Account not found." });
+      if (!script) return interaction.editReply({ content: "Use a valid script: `main` or `mobile`." });
+      db[username].allowedScripts = (db[username].allowedScripts || []).filter((item) => item !== script);
+      writeDB(db);
+      return interaction.editReply({ content: "Removed `" + script + "` access from `" + username + "`." });
+    }
+
+    if (subcommand === "suspend" || subcommand === "revoke") {
+      const discordUser = interaction.options.getUser("user");
+      if (!discordUser) return interaction.editReply({ content: "Provide a Discord user to revoke." });
+      const accountName = findAccountByDiscordId(db, discordUser.id);
+      if (accountName && db[accountName]) {
+        db[accountName].status = "disabled";
+        db[accountName].allowedScripts = [];
+        writeDB(db);
+      }
+      return interaction.editReply({ content: "**Access revoked**\n• **Discord:** " + discordUser.username + "\n• **Loader account:** " + (accountName ? "`" + accountName + "` (disabled)" : "[none]") });
+    }
+
+    if (subcommand === "unsuspend") {
+      const discordUser = interaction.options.getUser("user");
+      if (!discordUser) return interaction.editReply({ content: "Provide a Discord user to restore." });
+      const accountName = findAccountByDiscordId(db, discordUser.id);
+      if (!accountName || !db[accountName]) {
+        return interaction.editReply({ content: "No linked account found for that Discord user." });
+      }
+      const member = await getMemberRoles(discordUser.id);
+      db[accountName].status = "active";
+      db[accountName].allowedScripts = getGrantedScriptsForMember(member);
+      if (!db[accountName].allowedScripts.length) db[accountName].allowedScripts = ["mobile"];
+      writeDB(db);
+      return interaction.editReply({ content: "Account `" + accountName + "` has been restored and access refreshed." });
+    }
+
+    if (subcommand === "refreshaccess") {
+      const targetUser = interaction.options.getUser("user");
+      if (!targetUser) return interaction.editReply({ content: "Provide a Discord user to refresh." });
+      const refreshed = await refreshLinkedAccountAccess(db, targetUser.id);
+      if (!refreshed) return interaction.editReply({ content: "No linked loader account found for that user." });
+      return interaction.editReply({ content: "Access refreshed for `" + findAccountByDiscordId(db, targetUser.id) + "`. Current scripts: `" + getScriptAccessText(refreshed) + "`." });
+    }
+
+    if (subcommand === "whois" || subcommand === "lookupdiscord") {
+      const discordUser = interaction.options.getUser("user");
+      if (!discordUser) return interaction.editReply({ content: "Provide a Discord user to lookup." });
+      const accountName = findAccountByDiscordId(db, discordUser.id);
+      if (!accountName) return interaction.editReply({ content: "No loader account is linked to that Discord user." });
+      return interaction.editReply({ content: "**Linked Account**\n• **Discord:** " + discordUser.username + "\n• **Loader:** `" + accountName + "`\n• **Scripts:** `" + getScriptAccessText(db[accountName]) + "`" });
+    }
+
+    if (subcommand === "accountinfo" || subcommand === "showuserinfo") {
       const lookupUsername = interaction.options.getString("lookup")?.trim().toLowerCase();
       if (!lookupUsername) return interaction.editReply({ content: "Please enter a username!" });
       if (lookupUsername === "__meta" || !db[lookupUsername]) return interaction.editReply({ content: "Account not found." });
       const account = db[lookupUsername];
       return interaction.editReply({
-        content: "**User Info — `" + lookupUsername + "`**\n• **Username:** `" + lookupUsername + "`\n• **Password:** `" + account.password + "`\n• **Key:** `" + account.key + "`\n• **Scripts:** `" + (account.allowedScripts || []).join(", ") + "`\n• **Status:** `" + (account.status || "active") + "`",
+        content: "**User Info — `" + lookupUsername + "`**\n• **Username:** `" + lookupUsername + "`\n• **Password:** `" + account.password + "`\n• **Key:** `" + account.key + "`\n• **Status:** `" + (account.status || "active") + "`\n• **Device Lock:** `" + (account.hwid ? "Locked" : "Open") + "`\n• **Scripts:** `" + getScriptAccessText(account) + "`\n• **Linked Discord:** `" + (account.discordId || "none") + "`",
         flags: MessageFlags.Ephemeral
       });
     }
@@ -572,7 +664,7 @@ client.on("interactionCreate", async (interaction) => {
         const acct = db[x];
         const status = acct.status || "active";
         const locked = acct.hwid ? "Locked" : "Open";
-        const scripts = (acct.allowedScripts || []).join(", ");
+        const scripts = getScriptAccessText(acct);
         return "• **" + x + "** — Status: `" + status + "` — Device: `" + locked + "` — Scripts: `" + scripts + "`";
       });
 
@@ -600,16 +692,61 @@ client.on("interactionCreate", async (interaction) => {
       return;
     }
 
-    if (subcommand === "revoke") {
-      const discordUser = interaction.options.getUser("user");
-      if (!discordUser) return interaction.editReply({ content: "Provide a Discord user to revoke." });
-      const accountName = findAccountByDiscordId(db, discordUser.id);
-      if (accountName && db[accountName]) {
-        db[accountName].status = "disabled";
-        db[accountName].allowedScripts = [];
-        writeDB(db);
-      }
-      return interaction.editReply({ content: "**Access revoked**\n• **Discord:** " + discordUser.username + "\n• **Loader account:** " + (accountName ? "`" + accountName + "` (disabled)" : "[none]") });
+    const inputUser = interaction.options.getString("username")?.trim().toLowerCase();
+    const inputPass = interaction.options.getString("password");
+    const targetUser = inputUser ? db[inputUser] : null;
+
+    function checkCredentials(customUser, customPass) {
+      if (customUser === undefined) customUser = targetUser;
+      if (customPass === undefined) customPass = inputPass;
+      if (!customUser) { interaction.editReply({ content: "Account not found." }).catch(() => {}); return false; }
+      if (customUser.password !== customPass) { interaction.editReply({ content: "Incorrect password" }).catch(() => {}); return false; }
+      if (customUser.status === "disabled") { interaction.editReply({ content: "This account is banned" }).catch(() => {}); return false; }
+      return true;
+    }
+
+    if (subcommand === "accountstatus") {
+      if (!checkCredentials()) return;
+      const keyCreatedAt = targetUser.keyCreatedAt || now();
+      const left = Math.max(0, Math.ceil((KEY_LIFETIME - (now() - keyCreatedAt)) / (1000 * 60 * 60 * 24)));
+      return interaction.editReply({
+        content: "### Account Check: [" + inputUser + "]\n• **Status:** `" + targetUser.status + "`\n• **Device Lock:** `" + (targetUser.hwid ? "Locked" : "Open") + "`\n• **Expires In:** `" + left + " days`\n• **Scripts:** `" + getScriptAccessText(targetUser) + "`",
+        flags: MessageFlags.Ephemeral
+      });
+    }
+
+    if (subcommand === "changepassword") {
+      const oldPass = interaction.options.getString("old_password");
+      if (!checkCredentials(targetUser, oldPass)) return;
+      db[inputUser].password = interaction.options.getString("new_password");
+      writeDB(db);
+      return interaction.editReply({ content: "Password changed" });
+    }
+
+    if (subcommand === "setpassword") {
+      const username = interaction.options.getString("username")?.trim().toLowerCase();
+      const newPassword = interaction.options.getString("new_password");
+      if (!username || !db[username]) return interaction.editReply({ content: "Account not found." });
+      if (!newPassword || !newPassword.trim()) return interaction.editReply({ content: "Provide a valid new password." });
+      db[username].password = newPassword.trim();
+      writeDB(db);
+      return interaction.editReply({ content: "Password updated for `" + username + "`." });
+    }
+
+    if (subcommand === "lockaccount") {
+      const username = interaction.options.getString("username")?.trim().toLowerCase();
+      if (!username || !db[username]) return interaction.editReply({ content: "Account not found." });
+      db[username].hwid = "manual-lock";
+      writeDB(db);
+      return interaction.editReply({ content: "Account `" + username + "` has been manually locked." });
+    }
+
+    if (subcommand === "unlockaccount") {
+      const username = interaction.options.getString("username")?.trim().toLowerCase();
+      if (!username || !db[username]) return interaction.editReply({ content: "Account not found." });
+      db[username].hwid = null;
+      writeDB(db);
+      return interaction.editReply({ content: "Account `" + username + "` has been unlocked." });
     }
 
     return interaction.editReply({ content: "Unknown command." });
@@ -635,7 +772,7 @@ client.on("guildMemberUpdate", async (oldMember, newMember) => {
     if (oldRoles.size === newRoles.size && [...oldRoles.keys()].every((key) => newRoles.has(key))) return;
 
     const allowedScripts = getGrantedScriptsForMember(newMember);
-    db[linkedAccountName].allowedScripts = allowedScripts;
+    db[linkedAccountName].allowedScripts = allowedScripts.length ? allowedScripts : ["mobile"];
     writeDB(db);
   } catch (err) {
     console.error("[AUTO-SYNC ERROR]", err);
@@ -661,16 +798,29 @@ function buildCommands() {
   }
 
   builder
+    .addSubcommand((sub) => sub.setName("help").setDescription("List all Jayce commands"))
     .addSubcommand((sub) => sub.setName("panel").setDescription("Open the Jayce scripts panel"))
     .addSubcommand((sub) => sub.setName("setpanel").setDescription("Send the panel to a selected channel").addChannelOption((o) => o.setName("channel").setDescription("The channel to send the panel to").setRequired(true)))
     .addSubcommand((sub) => sub.setName("accountstatus").setDescription("Check your account status").addStringOption((o) => o.setName("username").setDescription("Your loader username").setRequired(true)).addStringOption((o) => o.setName("password").setDescription("Your loader password").setRequired(true)))
-    .addSubcommand((sub) => sub.setName("changepassword").setDescription("Change your password").addStringOption((o) => o.setName("username").setDescription("Your loader username").setRequired(true)).addStringOption((o) => o.setName("old_password").setDescription("Current password").setRequired(true)).addStringOption((o) => o.setName("new_password").setDescription("New password").setRequired(true)))
+    .addSubcommand((sub) => sub.setName("accountinfo").setDescription("View another account's details").addStringOption((o) => o.setName("lookup").setDescription("The username to inspect").setRequired(true)))
+    .addSubcommand((sub) => sub.setName("changepassword").setDescription("Change your password").addStringOption((o) => o.setName("username").setDescription("Your loader username").setRequired(true)).addStringOption((o) => o.setName("old_password").setDescription("Your current password").setRequired(true)).addStringOption((o) => o.setName("new_password").setDescription("Your new password").setRequired(true)))
     .addSubcommand((sub) => sub.setName("showuserinfo").setDescription("View any account's username, password and key").addStringOption((o) => o.setName("lookup").setDescription("The username to inspect").setRequired(true)))
     .addSubcommand((sub) => sub.setName("accounts").setDescription("List all registered accounts"))
+    .addSubcommand((sub) => sub.setName("whois").setDescription("Find a linked loader account by Discord user").addUserOption((o) => o.setName("user").setDescription("Discord user to lookup").setRequired(true)))
     .addSubcommand((sub) => sub.setName("revoke").setDescription("Revoke access").addUserOption((o) => o.setName("user").setDescription("Discord user to revoke").setRequired(true)))
+    .addSubcommand((sub) => sub.setName("suspend").setDescription("Suspend a linked account").addUserOption((o) => o.setName("user").setDescription("Discord user to suspend").setRequired(true)))
+    .addSubcommand((sub) => sub.setName("unsuspend").setDescription("Restore a suspended account").addUserOption((o) => o.setName("user").setDescription("Discord user to restore").setRequired(true)))
+    .addSubcommand((sub) => sub.setName("grant").setDescription("Grant script access to an account").addStringOption((o) => o.setName("username").setDescription("The username to edit").setRequired(true)).addStringOption((o) => o.setName("script").setDescription("Script to grant: main or mobile").setRequired(true)))
+    .addSubcommand((sub) => sub.setName("removeaccess").setDescription("Remove access from an account").addStringOption((o) => o.setName("username").setDescription("The username to edit").setRequired(true)).addStringOption((o) => o.setName("script").setDescription("Script to remove: main or mobile").setRequired(true)))
+    .addSubcommand((sub) => sub.setName("refreshaccess").setDescription("Refresh access based on Discord roles").addUserOption((o) => o.setName("user").setDescription("Discord user to refresh").setRequired(true)))
     .addSubcommand((sub) => sub.setName("deleteaccount").setDescription("Permanently delete a loader account").addStringOption((o) => o.setName("username").setDescription("Username to delete").setRequired(true)).addBooleanOption((o) => o.setName("confirm").setDescription("Confirm permanent deletion").setRequired(true)))
     .addSubcommand((sub) => sub.setName("resetkey").setDescription("Generate a new key for an account").addStringOption((o) => o.setName("username").setDescription("Username whose key to reset").setRequired(true)))
-    .addSubcommand((sub) => sub.setName("stats").setDescription("Show loader account statistics"));
+    .addSubcommand((sub) => sub.setName("stats").setDescription("Show loader account statistics"))
+    .addSubcommand((sub) => sub.setName("togglemaintenance").setDescription("Enable or disable maintenance mode").addBooleanOption((o) => o.setName("enabled").setDescription("True to enable maintenance mode").setRequired(false)))
+    .addSubcommand((sub) => sub.setName("lookupdiscord").setDescription("Lookup the linked account from a Discord user").addUserOption((o) => o.setName("user").setDescription("Discord user to lookup").setRequired(true)))
+    .addSubcommand((sub) => sub.setName("setpassword").setDescription("Force set a user's password").addStringOption((o) => o.setName("username").setDescription("Username whose password to change").setRequired(true)).addStringOption((o) => o.setName("new_password").setDescription("New password").setRequired(true)))
+    .addSubcommand((sub) => sub.setName("lockaccount").setDescription("Manually lock a user to a HWID").addStringOption((o) => o.setName("username").setDescription("Username to lock").setRequired(true)))
+    .addSubcommand((sub) => sub.setName("unlockaccount").setDescription("Unlock a user's device lock").addStringOption((o) => o.setName("username").setDescription("Username to unlock").setRequired(true)));
 
   const json = builder.toJSON();
   json.dm_permission = true;
@@ -717,7 +867,7 @@ client.on("messageCreate", async (message) => {
     const sub = (parts[1] || "").toLowerCase();
 
     if (!sub || sub === "help") {
-      return message.reply("**Jayce DM commands**\n`!jayce accountstatus <username> <password>`\n`!jayce changepassword <username> <oldpass> <newpass>`\n`!jayce key <username> <password>`");
+      return message.reply("**Jayce DM commands**\n`!jayce accountstatus <username> <password>`\n`!jayce changepassword <username> <oldpass> <newpass>`\n`!jayce key <username> <password>`\n`!jayce stats`\n`!jayce whois <discord_id>`");
     }
 
     if (sub === "accountstatus") {
@@ -728,7 +878,7 @@ client.on("messageCreate", async (message) => {
       if (account.status === "disabled") return message.reply("This account is banned");
       const keyCreatedAt = account.keyCreatedAt || now();
       const left = Math.max(0, Math.ceil((KEY_LIFETIME - (now() - keyCreatedAt)) / (1000 * 60 * 60 * 24)));
-      return message.reply("### Account Check: [" + username + "]\n• **Status:** `" + account.status + "`\n• **Device Lock:** `" + (account.hwid ? "Locked" : "Open") + "`\n• **Expires On:** " + formatDate(keyCreatedAt + KEY_LIFETIME) + "\n• **Days Left:** " + left + " day(s)");
+      return message.reply("### Account Check: [" + username + "]\n• **Status:** `" + account.status + "`\n• **Device Lock:** `" + (account.hwid ? "Locked" : "Open") + "`\n• **Expires In:** `" + left + " days`\n• **Scripts:** `" + getScriptAccessText(account) + "`");
     }
 
     if (sub === "changepassword") {
@@ -751,6 +901,23 @@ client.on("messageCreate", async (message) => {
       if (!account || account.password !== password) return message.reply("Account not found or incorrect password");
       if (account.status === "disabled") return message.reply("This account is banned");
       return message.reply("Your key is: `" + account.key + "`");
+    }
+
+    if (sub === "stats") {
+      const accountNames = getAccountKeys(db);
+      const accounts = accountNames.map((name) => db[name]).filter(Boolean);
+      const activeCount = accounts.filter((account) => account.status !== "disabled").length;
+      const mainCount = accounts.filter((account) => (account.allowedScripts || []).includes("main")).length;
+      const mobileCount = accounts.filter((account) => (account.allowedScripts || []).includes("mobile")).length;
+      return message.reply("**Jayce Account Stats**\n• Total accounts: **" + accounts.length + "**\n• Active: **" + activeCount + "**\n• Main access: **" + mainCount + "**\n• Mobile access: **" + mobileCount + "**");
+    }
+
+    if (sub === "whois") {
+      const lookupId = parts[2];
+      if (!lookupId) return message.reply("Usage: `!jayce whois <discord_id>`");
+      const accountName = findAccountByDiscordId(db, lookupId);
+      if (!accountName) return message.reply("No linked account found for that Discord user.");
+      return message.reply("**Linked Account**\n• **Discord ID:** `" + lookupId + "`\n• **Loader:** `" + accountName + "`\n• **Scripts:** `" + getScriptAccessText(db[accountName]) + "`");
     }
 
     return message.reply("Unknown subcommand. Type `!jayce help`");
