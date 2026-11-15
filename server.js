@@ -323,7 +323,7 @@ function createLuaTemplate(u, k, endpoint, displayName) {
 function createPanel() {
   const embed = new EmbedBuilder()
     .setColor(0xEAF4FF)
-    .setTitle("☁️ ୨୧ jayce script panel୨୧ ☁️")
+    .setTitle(" ୨୧ jayce script panel୨୧ ")
     .setDescription(
       "˚₊‧꒰ა Welcome to the heavenly control panel ໒꒱‧₊˚\n\n" +
       "Register an account\n" +
@@ -373,7 +373,7 @@ client.on("interactionCreate", async (interaction) => {
   if (!interaction.isChatInputCommand() && !hasAccess(member, [ADMIN_ROLE])) {
     if (interaction.deferred || interaction.replied) {
       return interaction.followUp({
-        content: "You need the admin role to use this bot.",
+        content: "you need a ** buyer role ** to use this.",
         flags: MessageFlags.Ephemeral
       });
     }
