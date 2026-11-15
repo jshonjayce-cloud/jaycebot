@@ -195,14 +195,26 @@ function hasAccess(member, requiredRoleIds) {
 
 function getGrantedScriptsForMember(member) {
   const grantedScripts = [];
-  if (hasAccess(member, [MOBILE_MAIN_ROLE])) grantedScripts.push("mobile");
-  if (hasAccess(member, [MAIN_ACCESS_ROLE])) grantedScripts.push("main");
+  if (hasAnyRole(member, [MOBILE_MAIN_ROLE])) grantedScripts.push("mobile");
+  if (hasAnyRole(member, [MAIN_ACCESS_ROLE])) grantedScripts.push("main");
   return grantedScripts;
+}
+
+function hasPanelAccess(member, action) {
+  if (action === "main") return hasAnyRole(member, [MAIN_ACCESS_ROLE]);
+  if (action === "mobilemain") return hasAnyRole(member, [MOBILE_MAIN_ROLE]);
+  if (["register", "key", "resethwid"].includes(action)) {
+    return hasAnyRole(member, [MAIN_ACCESS_ROLE, MOBILE_MAIN_ROLE]);
+  }
+  return false;
 }
 
 function getPanelAccessMessage(action) {
   if (action === "main") return "You need the Main role to use the Main button.";
   if (action === "mobilemain") return "You need the Mobile Main role to use the Mobile button.";
+  if (["register", "key", "resethwid"].includes(action)) {
+    return "You need the Main or Mobile role to use this button.";
+  }
   return "You need access to use this button.";
 }
 
@@ -216,7 +228,7 @@ async function refreshLinkedAccountAccess(db, discordUserId) {
   if (!accountName || !db[accountName]) return null;
   const member = await getMemberRoles(discordUserId);
   const granted = getGrantedScriptsForMember(member);
-  db[accountName].allowedScripts = granted.length ? granted : ["mobile"];
+  db[accountName].allowedScripts = granted.length ? granted : [];
   writeDB(db);
   return db[accountName];
 }
@@ -370,22 +382,12 @@ client.on("interactionCreate", async (interaction) => {
     return;
   }
 
-  if (!interaction.isChatInputCommand() && !hasAccess(member, [ADMIN_ROLE])) {
-    if (interaction.deferred || interaction.replied) {
-      return interaction.followUp({
-        content: "you need a ** buyer role ** to use this.",
-        flags: MessageFlags.Ephemeral
-      });
-    }
-    return interaction.reply({
-      content: "You need the admin role to use this bot.",
-      flags: MessageFlags.Ephemeral
-    });
-  }
-
   if (interaction.isButton()) {
     const action = interaction.customId.slice(3);
     if (interaction.customId.startsWith("jc_") && ["register", "key", "main", "mobilemain", "resethwid"].includes(action)) {
+      if (!hasPanelAccess(member, action)) {
+        return interaction.reply({ content: getPanelAccessMessage(action), flags: MessageFlags.Ephemeral });
+      }
       return interaction.showModal(createPanelModal(action));
     }
     return;
@@ -400,15 +402,7 @@ client.on("interactionCreate", async (interaction) => {
 
     if (!member) return interaction.reply({ content: "You are not in the Jayce server.", flags: MessageFlags.Ephemeral });
 
-    const actionRoleMap = {
-      register: [MAIN_ACCESS_ROLE, MOBILE_MAIN_ROLE],
-      key: [MAIN_ACCESS_ROLE, MOBILE_MAIN_ROLE],
-      main: [MAIN_ACCESS_ROLE],
-      mobilemain: [MOBILE_MAIN_ROLE],
-      resethwid: [MAIN_ACCESS_ROLE, MOBILE_MAIN_ROLE]
-    };
-
-    if (!hasAccess(member, actionRoleMap[action] || [])) {
+    if (!hasPanelAccess(member, action)) {
       return interaction.reply({ content: getPanelAccessMessage(action), flags: MessageFlags.Ephemeral });
     }
 
@@ -429,7 +423,7 @@ client.on("interactionCreate", async (interaction) => {
         hwidLockedAt: null,
         lastHwidReset: 0,
         status: "active",
-        allowedScripts: grantedScripts.length ? grantedScripts : ["mobile"],
+        allowedScripts: grantedScripts.length ? grantedScripts : [],
         discordId: interaction.user.id,
         keyCreatedAt: createdAt
       };
@@ -529,7 +523,7 @@ client.on("interactionCreate", async (interaction) => {
     const currentMember = await getMemberRoles(interaction.user.id);
     if (!currentMember) return interaction.editReply({ content: "Not In Server" });
 
-    if (["showuserinfo", "accountinfo", "accounts", "revoke", "deleteaccount", "resetkey", "stats", "grant", "removeaccess", "suspend", "unsuspend", "whois", "lookupdiscord", "refreshaccess", "togglemaintenance", "setpassword", "lockaccount", "unlockaccount", "maintenance", "help"].includes(subcommand) && !hasAccess(currentMember, USERINFO_ROLES)) {
+    if (["showuserinfo", "accountinfo", "accounts", "revoke", "deleteaccount", "resetkey", "stats", "grant", "removeaccess", "suspend", "unsuspend", "whois", "lookupdiscord", "refreshaccess", "togglemaintenance", "setpassword", "lockaccount", "unlockaccount"].includes(subcommand) && !hasAccess(currentMember, USERINFO_ROLES)) {
       return interaction.editReply({ content: "**No Access**" });
     }
 
@@ -625,7 +619,7 @@ client.on("interactionCreate", async (interaction) => {
       const member = await getMemberRoles(discordUser.id);
       db[accountName].status = "active";
       db[accountName].allowedScripts = getGrantedScriptsForMember(member);
-      if (!db[accountName].allowedScripts.length) db[accountName].allowedScripts = ["mobile"];
+      if (!db[accountName].allowedScripts.length) db[accountName].allowedScripts = [];
       writeDB(db);
       return interaction.editReply({ content: "Account `" + accountName + "` has been restored and access refreshed." });
     }
@@ -772,7 +766,7 @@ client.on("guildMemberUpdate", async (oldMember, newMember) => {
     if (oldRoles.size === newRoles.size && [...oldRoles.keys()].every((key) => newRoles.has(key))) return;
 
     const allowedScripts = getGrantedScriptsForMember(newMember);
-    db[linkedAccountName].allowedScripts = allowedScripts.length ? allowedScripts : ["mobile"];
+    db[linkedAccountName].allowedScripts = allowedScripts.length ? allowedScripts : [];
     writeDB(db);
   } catch (err) {
     console.error("[AUTO-SYNC ERROR]", err);
@@ -803,7 +797,7 @@ function buildCommands() {
     .addSubcommand((sub) => sub.setName("setpanel").setDescription("Send the panel to a selected channel").addChannelOption((o) => o.setName("channel").setDescription("The channel to send the panel to").setRequired(true)))
     .addSubcommand((sub) => sub.setName("accountstatus").setDescription("Check your account status").addStringOption((o) => o.setName("username").setDescription("Your loader username").setRequired(true)).addStringOption((o) => o.setName("password").setDescription("Your loader password").setRequired(true)))
     .addSubcommand((sub) => sub.setName("accountinfo").setDescription("View another account's details").addStringOption((o) => o.setName("lookup").setDescription("The username to inspect").setRequired(true)))
-    .addSubcommand((sub) => sub.setName("changepassword").setDescription("Change your password").addStringOption((o) => o.setName("username").setDescription("Your loader username").setRequired(true)).addStringOption((o) => o.setName("old_password").setDescription("Your current password").setRequired(true)).addStringOption((o) => o.setName("new_password").setDescription("Your new password").setRequired(true)))
+    .addSubcommand((sub) => sub.setName("changepassword").setDescription("Change your password").addStringOption((o) => o.setName("username").setDescription("Your loader username").setRequired(true)).addStringOption((o) => o.setName("old_password").setDescription("Current password").setRequired(true)).addStringOption((o) => o.setName("new_password").setDescription("New password").setRequired(true)))
     .addSubcommand((sub) => sub.setName("showuserinfo").setDescription("View any account's username, password and key").addStringOption((o) => o.setName("lookup").setDescription("The username to inspect").setRequired(true)))
     .addSubcommand((sub) => sub.setName("accounts").setDescription("List all registered accounts"))
     .addSubcommand((sub) => sub.setName("whois").setDescription("Find a linked loader account by Discord user").addUserOption((o) => o.setName("user").setDescription("Discord user to lookup").setRequired(true)))
